@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sistem Raport Madrasah Diniyah</title>
+    
+    <!-- PWA Manifest & Icons (Data URI) -->
+    <script>
+        const manifest = {
+            "name": "Raport Madrasah",
+            "short_name": "Raport",
+            "start_url": ".",
+            "display": "standalone",
+            "background_color": "#f8fafc",
+            "theme_color": "#10b981",
+            "icons": [{"src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzEwYjk4MSIvPjwvc3ZnPg==", "sizes": "192x192", "type": "image/svg+xml"}]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(manifestBlob);
+        document.write(`<link rel="manifest" href="${manifestURL}">`);
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#10b981', secondary: '#059669' }
+                }
+            }
+        }
+    </script>
+
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- SheetJS (Excel) -->
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
+        
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        @media print {
+            @page { size: 215.9mm 330.2mm; margin: 15mm; }
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; color: black; font-family: 'Times New Roman', serif; }
+            
+            .print-table { border-collapse: collapse; width: 100%; font-size: 11pt; margin-top: 10px; }
+            .print-table th, .print-table td { border: 1px solid #000; padding: 4px 6px; text-align: center; }
+            .print-table td.text-left { text-align: left; }
+            
+            .print-header img { max-width: 100%; height: auto; max-height: 120px; object-fit: contain; }
+            .print-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 11pt; margin-top: 15px;}
+            
+            .box-border { border: 1px solid #000; padding: 8px; }
+            .status-text { margin-top: 15px; font-size: 11pt; line-height: 1.6; }
+            .ttd-area { display: grid; grid-template-columns: 1fr 1fr; margin-top: 30px; text-align: center; font-size: 11pt;}
+            .ttd-img { max-height: 70px; margin: 5px auto; }
+            
+            del { text-decoration-thickness: 2px; }
+        }
+
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .toast-enter { animation: slideUp 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased h-screen flex flex-col">
+
+    <div id="toast-container" class="fixed bottom-20 md:bottom-10 right-0 left-0 md:left-auto md:right-10 flex flex-col items-center md:items-end z-[100] pointer-events-none p-4 space-y-2"></div>
+
+    <div id="preview-badge" class="hidden bg-amber-500 text-white text-xs font-bold px-4 py-1 text-center shadow-md z-[60] relative">
+        ⚠️ MODE PREVIEW AKTIF (Data In-Memory). Ubah IS_PREVIEW = false untuk koneksi Firebase asli.
+    </div>
+
+    <!-- 1. LOGIN VIEW -->
+    <div id="login-view" class="flex-1 flex items-center justify-center p-4">
+        <div class="glass p-8 rounded-2xl shadow-xl w-full max-w-md">
+            <div class="text-center mb-6">
+                <i class="ph-fill ph-book-open text-5xl text-primary mb-2"></i>
+                <h1 class="text-2xl font-bold text-slate-900">SIM Raport Madrasah</h1>
+                <p class="text-sm text-slate-500">Pondok Pesantren / Diniyah</p>
+            </div>
+
+            <div class="flex bg-slate-100 rounded-lg p-1 mb-6">
+                <button onclick="switchLoginTab('admin')" id="tab-admin" class="flex-1 py-2 text-sm font-semibold rounded-md bg-white shadow text-primary transition">Admin</button>
+                <button onclick="switchLoginTab('guru')" id="tab-guru" class="flex-1 py-2 text-sm font-semibold rounded-md text-slate-500 hover:text-slate-700 transition">Guru Mapel</button>
+            </div>
+
+            <form id="login-form" onsubmit="event.preventDefault(); handleLogin();" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1" id="lbl-username">Email Admin</label>
+                    <input type="text" id="login-username" required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition" placeholder="admin@madrasah.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="login-password" required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition" placeholder="••••••••">
+                </div>
+                
+                <div id="demo-credentials" class="hidden text-xs text-amber-700 bg-amber-50 p-3 rounded border border-amber-200">
+                    <p class="font-bold mb-1">Info Login Demo:</p>
+                    <p>Admin: admin@demo.com / 123456</p>
+                    <p>Guru: ahmad / 123 (Mapel: Aqidah Akhlaq)</p>
+                </div>
+
+                <button type="submit" class="w-full bg-primary hover:bg-secondary text-white font-semibold py-2.5 rounded-lg shadow transition flex justify-center items-center gap-2">
+                    <i class="ph-bold ph-sign-in"></i> Masuk Sistem
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. MAIN APP VIEW -->
+    <div id="app-view" class="hidden h-screen flex flex-col md:flex-row bg-slate-50 relative">
+        
+        <aside class="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 z-10 relative">
+            <div class="p-6 flex items-center gap-3 border-b border-slate-100">
+                <i class="ph-fill ph-book-open text-3xl text-primary"></i>
+                <div>
+                    <h2 class="font-bold text-slate-800 leading-tight">SIM Raport</h2>
+                    <p class="text-xs text-slate-500" id="sidebar-role">Admin Panel</p>
+                </div>
+            </div>
+            <nav class="flex-1 overflow-y-auto p-4 space-y-1" id="desktop-nav"></nav>
+            <div class="p-4 border-t border-slate-100">
+                <button onclick="handleLogout()" class="w-full flex items-center gap-3 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition">
+                    <i class="ph-bold ph-sign-out"></i> Keluar
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col h-screen overflow-hidden">
+            <header class="md:hidden bg-white border-b border-slate-200 p-4 flex justify-between items-center z-10 glass">
+                <div class="flex items-center gap-2">
+                    <i class="ph-fill ph-book-open text-2xl text-primary"></i>
+                    <h2 class="font-bold text-slate-800">SIM Raport</h2>
+                </div>
+                <button onclick="handleLogout()" class="text-red-500 p-2"><i class="ph-bold ph-sign-out text-xl"></i></button>
+            </header>
+
+            <div id="main-content" class="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8"></div>
+        </main>
+
+        <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 pb-safe z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <div class="flex justify-around items-center p-2" id="mobile-nav"></div>
+        </nav>
+    </div>
+
+    <!-- 3. MODALS CONTAINER -->
+    <div id="modal-container" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] hidden flex items-center justify-center p-4">
+        <div id="modal-content" class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transform scale-95 transition-transform duration-200">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 id="modal-title" class="font-bold text-lg text-slate-800">Title</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="ph-bold ph-x text-xl"></i></button>
+            </div>
+            <div id="modal-body" class="p-6 overflow-y-auto"></div>
+            <div id="modal-footer" class="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50"></div>
+        </div>
+    </div>
+
+    <!-- 4. PRINT VIEW -->
+    <div id="print-area" class="hidden"></div>
+
+    <!-- FIREBASE & APP LOGIC -->
+    <script type="module">
+        const IS_PREVIEW = false;
+        
+        const firebaseConfig = {
+  apiKey: "AIzaSyBfFbbITjk61BmJrPssMBIUCXjpPXPvf9A",
+  authDomain: "raport-bw.firebaseapp.com",
+  projectId: "raport-bw",
+  storageBucket: "raport-bw.firebasestorage.app",
+  messagingSenderId: "785081867118",
+  appId: "1:785081867118:web:e27a0f10ae83472d427f7f"
+        };
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, getDocs, doc, setDoc, addDoc, updateDoc, deleteDoc, query, where, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        let app, auth, db;
+        if (!IS_PREVIEW) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+
+        let currentUser = null; 
+        let currentRole = 'admin';
+        let loginTab = 'admin';
+        let currentMenu = 'dashboard';
+
+        let memoryDb = {
+            pengaturan: { id: 'default', kop_image: '', ttd_pengasuh: '', nama_pengasuh: 'K.H. Fulan bin Fulan', tanggal_cetak: '' },
+            tahun_akademik: [
+                { id: 'ta1', nama_tahun: '2025/2026', semester: 'Ganjil', aktif: true },
+                { id: 'ta2', nama_tahun: '2025/2026', semester: 'Genap', aktif: false }
+            ],
+            kelas: [
+                { id: 'kls1', nama_kelas: '1 A', tingkat: 'Diniyah' },
+                { id: 'kls2', nama_kelas: 'Jilid 4', tingkat: 'Qur\'an' },
+                { id: 'kls3', nama_kelas: 'Mubtadi', tingkat: 'B. Arab' }
+            ],
+            mapel: [
+                { id: 'm1', nama_mapel: 'Aqidah Akhlaq', kkm: 70 },
+                { id: 'm2', nama_mapel: 'Fiqih', kkm: 75 }
+            ],
+            guru: [
+                { id: 'g1', nama_guru: 'Ust. Ahmad', username: 'ahmad', password: '123', id_mapel_diampu: 'm1' }
+            ],
+            santri: [
+                { id: 's1', nis: '1001', nama_santri: 'Abdullah Azzam', id_tahun: 'ta1', kelas_diniyah: '1 A', kelas_quran: 'Jilid 4', kelas_b_arab: 'Mubtadi', 
+                  absen_jamaah: 0, absen_quran: 2, absen_b_arab: 0, absen_diniyah: 1, catatan_pengasuh: 'Tingkatkan kedisiplinan jamaah.' },
+                { id: 's2', nis: '1002', nama_santri: 'Zaid bin Tsabit', id_tahun: 'ta1', kelas_diniyah: '1 A', kelas_quran: 'Al-Quran', kelas_b_arab: 'Mutawassith', 
+                  absen_jamaah: 0, absen_quran: 0, absen_b_arab: 0, absen_diniyah: 0, catatan_pengasuh: 'Sangat baik, pertahankan prestasimu.' }
+            ],
+            nilai: [
+                { id: 'n1', id_santri: 's1', id_mapel: 'm1', harian_1: 80, harian_2: 85, harian_3: 85, ujian_tulis: 90, ujian_hafalan: 88, status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: 'Rajin bertanya' },
+                { id: 'n2', id_santri: 's1', id_mapel: 'm2', harian_1: 75, harian_2: 78, harian_3: 75, ujian_tulis: 80, ujian_hafalan: null, status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: 'Pahami bab bersuci' }
+            ]
+        };
+
+        const $ = (id) => document.getElementById(id);
+        
+        window.showToast = (message, type = 'success') => {
+            const container = $('toast-container');
+            const toast = document.createElement('div');
+            const colors = { success: 'bg-emerald-500', error: 'bg-red-500', info: 'bg-blue-500' };
+            const icons = { success: 'ph-check-circle', error: 'ph-warning-circle', info: 'ph-info' };
+            
+            toast.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 toast-enter pointer-events-auto`;
+            toast.innerHTML = `<i class="ph-fill ${icons[type]} text-xl"></i> <span class="text-sm font-medium">${message}</span>`;
+            
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
+
+        window.generateId = () => Math.random().toString(36).substr(2, 9);
+
+        window.fileToBase64 = (file, maxWidth = 800) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const scaleSize = maxWidth / img.width;
+                        canvas.width = maxWidth;
+                        canvas.height = img.height * scaleSize;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                };
+                reader.onerror = error => reject(error);
+            });
+        };
+
+        const API = {
+            async getList(collectionName) {
+                if (IS_PREVIEW) return [...memoryDb[collectionName]];
+                const snapshot = await getDocs(collection(db, collectionName));
+                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            },
+            async getOne(collectionName, id) {
+                if (IS_PREVIEW) {
+                    if (collectionName === 'pengaturan') return memoryDb.pengaturan;
+                    return memoryDb[collectionName].find(x => x.id === id) || null;
+                }
+                const docRef = doc(db, collectionName, id);
+                const docSnap = await getDoc(docRef);
+                return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+            },
+            async save(collectionName, data, id = null) {
+                if (IS_PREVIEW) {
+                    if (id && collectionName === 'pengaturan') {
+                        memoryDb.pengaturan = { ...memoryDb.pengaturan, ...data };
+                        return;
+                    }
+                    if (id) {
+                        const index = memoryDb[collectionName].findIndex(x => x.id === id);
+                        if (index > -1) memoryDb[collectionName][index] = { id, ...data };
+                        else memoryDb[collectionName].push({ id, ...data });
+                    } else {
+                        memoryDb[collectionName].push({ id: generateId(), ...data });
+                    }
+                    return;
+                }
+                if (id) await setDoc(doc(db, collectionName, id), data, { merge: true });
+                else await addDoc(collection(db, collectionName), data);
+            },
+            async delete(collectionName, id) {
+                if (IS_PREVIEW) {
+                    memoryDb[collectionName] = memoryDb[collectionName].filter(x => x.id !== id);
+                    return;
+                }
+                await deleteDoc(doc(db, collectionName, id));
+            },
+            async query(collectionName, field, operator, value) {
+                if (IS_PREVIEW) {
+                    return memoryDb[collectionName].filter(x => {
+                        if (operator === '==') return x[field] === value;
+                        return false;
+                    });
+                }
+                const q = query(collection(db, collectionName), where(field, operator, value));
+                const snapshot = await getDocs(q);
+                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+        };
+
+        window.switchLoginTab = (role) => {
+            loginTab = role;
+            $('tab-admin').className = role === 'admin' ? 'flex-1 py-2 text-sm font-semibold rounded-md bg-white shadow text-primary transition' : 'flex-1 py-2 text-sm font-semibold rounded-md text-slate-500 hover:text-slate-700 transition';
+            $('tab-guru').className = role === 'guru' ? 'flex-1 py-2 text-sm font-semibold rounded-md bg-white shadow text-primary transition' : 'flex-1 py-2 text-sm font-semibold rounded-md text-slate-500 hover:text-slate-700 transition';
+            
+            $('lbl-username').innerText = role === 'admin' ? 'Email Admin' : 'Username Guru';
+            $('login-username').placeholder = role === 'admin' ? 'admin@madrasah.com' : 'username_guru';
+            $('login-username').type = role === 'admin' ? 'email' : 'text';
+            $('login-username').value = '';
+            $('login-password').value = '';
+        };
+
+        window.handleLogin = async () => {
+            const userVal = $('login-username').value;
+            const passVal = $('login-password').value;
+            
+            try {
+                if (loginTab === 'admin') {
+                    if (IS_PREVIEW) {
+                        if (userVal === 'admin@demo.com' && passVal === '123456') {
+                            finalizeLogin({ role: 'admin', email: userVal, name: 'Administrator' });
+                        } else throw new Error("Kredensial Admin Demo Salah!");
+                    } else {
+                        const cred = await signInWithEmailAndPassword(auth, userVal, passVal);
+                        finalizeLogin({ role: 'admin', email: cred.user.email, name: 'Administrator' });
+                    }
+                } else {
+                    const gurus = await API.query('guru', 'username', '==', userVal);
+                    if (gurus.length > 0 && gurus[0].password === passVal) {
+                        finalizeLogin({ role: 'guru', ...gurus[0] });
+                    } else {
+                        throw new Error("Username atau Password Guru salah!");
+                    }
+                }
+            } catch (err) {
+                showToast(err.message || "Gagal Login", "error");
+            }
+        };
+
+        const finalizeLogin = (user) => {
+            currentUser = user;
+            currentRole = user.role;
+            $('login-view').classList.add('hidden');
+            $('app-view').classList.remove('hidden');
+            $('sidebar-role').innerText = currentRole === 'admin' ? 'Administrator' : `Guru: ${user.nama_guru}`;
+            showToast(`Selamat datang, ${user.name || user.nama_guru}`);
+            renderNavigation();
+            navigate('dashboard');
+        };
+
+        window.handleLogout = () => {
+            if (!IS_PREVIEW && currentRole === 'admin') signOut(auth);
+            currentUser = null;
+            $('login-view').classList.remove('hidden');
+            $('app-view').classList.add('hidden');
+            $('login-username').value = '';
+            $('login-password').value = '';
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (IS_PREVIEW) {
+                $('preview-badge').classList.remove('hidden');
+                $('demo-credentials').classList.remove('hidden');
+            }
+        });
+
+        const MENUS = {
+            admin: [
+                { id: 'dashboard', icon: 'ph-squares-four', label: 'Dashboard' },
+                { id: 'pengaturan', icon: 'ph-gear', label: 'Pengaturan Kop & TTD' },
+                { id: 'tahun_akademik', icon: 'ph-calendar', label: 'Tahun & Kelas' },
+                { id: 'mapel', icon: 'ph-books', label: 'Data Mapel' },
+                { id: 'guru', icon: 'ph-chalkboard-teacher', label: 'Data Guru' },
+                { id: 'santri', icon: 'ph-users', label: 'Data Santri' },
+                { id: 'absensi', icon: 'ph-calendar-check', label: 'Absensi Santri' },
+                { id: 'catatan_pengasuh', icon: 'ph-notebook', label: 'Catatan Pengasuh' },
+                { id: 'nilai', icon: 'ph-exam', label: 'Input Nilai & Excel' },
+                { id: 'cetak', icon: 'ph-printer', label: 'Cetak Raport' },
+            ],
+            guru: [
+                { id: 'dashboard', icon: 'ph-squares-four', label: 'Dashboard' },
+                { id: 'nilai_guru', icon: 'ph-exam', label: 'Input Nilai Mapel' },
+            ]
+        };
+
+        const renderNavigation = () => {
+            const menus = currentRole === 'admin' ? MENUS.admin : MENUS.guru;
+            
+            $('desktop-nav').innerHTML = menus.map(m => `
+                <button onclick="navigate('${m.id}')" id="nav-desk-${m.id}" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition ${currentMenu === m.id ? 'bg-primary/10 text-primary' : 'text-slate-600 hover:bg-slate-100'}">
+                    <i class="ph-bold ${m.icon} text-lg"></i> ${m.label}
+                </button>
+            `).join('');
+
+            $('mobile-nav').innerHTML = menus.map(m => `
+                <button onclick="navigate('${m.id}')" id="nav-mob-${m.id}" class="flex flex-col items-center justify-center p-2 min-w-[4rem] transition ${currentMenu === m.id ? 'text-primary' : 'text-slate-500'}">
+                    <i class="ph-bold ${m.icon} text-2xl mb-1"></i>
+                    <span class="text-[10px] font-medium truncate w-full text-center">${m.label}</span>
+                </button>
+            `).join('');
+        };
+
+        window.navigate = (menuId) => {
+            currentMenu = menuId;
+            renderNavigation();
+            renderContent();
+        };
+
+        window.renderContent = async () => {
+            const container = $('main-content');
+            container.innerHTML = `<div class="flex items-center justify-center h-64"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>`;
+            
+            try {
+                if (currentMenu === 'dashboard') await viewDashboard(container);
+                else if (currentMenu === 'tahun_akademik') await viewTahunAkademik(container);
+                else if (currentMenu === 'santri') await viewMasterSantri(container);
+                else if (currentMenu === 'absensi') await viewAbsensiSantri(container);
+                else if (currentMenu === 'catatan_pengasuh') await viewCatatanPengasuh(container);
+                else if (currentMenu === 'mapel') await viewMasterMapel(container);
+                else if (currentMenu === 'guru') await viewMasterGuru(container);
+                else if (currentMenu === 'nilai') await viewNilaiAdmin(container);
+                else if (currentMenu === 'nilai_guru') await viewNilaiGuru(container);
+                else if (currentMenu === 'pengaturan') await viewPengaturan(container);
+                else if (currentMenu === 'cetak') await viewCetak(container);
+                else container.innerHTML = `<div class="p-6">Menu belum tersedia</div>`;
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = `<div class="p-6 text-red-500">Terjadi kesalahan memuat halaman: ${err.message}</div>`;
+            }
+        };
+
+        window._santriFilterTA = '';
+        window._santriFilterKelasDiniyah = '';
+        window._cpFilterKelas = '';
+        window._cetakFilterTA = '';
+        window._cetakFilterKD = '';
+        window._cetakFilterSantri = '';
+
+        async function viewDashboard(container) {
+            const santris = await API.getList('santri');
+            const mapels = await API.getList('mapel');
+            const gurus = await API.getList('guru');
+
+            let html = `
+                <div class="mb-6">
+                    <h1 class="text-2xl font-bold text-slate-800">Dashboard</h1>
+                    <p class="text-slate-500 text-sm">Ringkasan sistem raport madrasah.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            `;
+            
+            if (currentRole === 'admin') {
+                html += `
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
+                        <div class="bg-blue-100 p-3 rounded-lg text-blue-600"><i class="ph-fill ph-users text-3xl"></i></div>
+                        <div><p class="text-sm text-slate-500">Total Santri</p><p class="text-2xl font-bold">${santris.length}</p></div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
+                        <div class="bg-emerald-100 p-3 rounded-lg text-emerald-600"><i class="ph-fill ph-books text-3xl"></i></div>
+                        <div><p class="text-sm text-slate-500">Mata Pelajaran</p><p class="text-2xl font-bold">${mapels.length}</p></div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
+                        <div class="bg-purple-100 p-3 rounded-lg text-purple-600"><i class="ph-fill ph-chalkboard-teacher text-3xl"></i></div>
+                        <div><p class="text-sm text-slate-500">Total Guru</p><p class="text-2xl font-bold">${gurus.length}</p></div>
+                    </div>
+                `;
+            } else {
+                const myMapel = mapels.find(m => m.id === currentUser.id_mapel_diampu);
+                html += `
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 col-span-1 md:col-span-3">
+                        <h3 class="text-lg font-bold mb-2">Selamat Bertugas, ${currentUser.nama_guru}</h3>
+                        <p class="text-slate-600">Anda ditugaskan mengampu mata pelajaran: <strong class="text-primary">${myMapel ? myMapel.nama_mapel : 'Belum diatur'}</strong>.</p>
+                        <p class="text-sm mt-4 text-slate-500">Silakan buka menu "Input Nilai Mapel" untuk memasukkan nilai harian, ujian, serta status kelulusan santri.</p>
+                    </div>
+                `;
+            }
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+
+        async function viewTahunAkademik(container) {
+            const tas = await API.getList('tahun_akademik');
+            const kls = await API.getList('kelas');
+
+            let rowsTA = tas.map((t, i) => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${t.nama_tahun} (${t.semester})</td>
+                    <td class="p-3 text-sm">${t.aktif ? '<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-bold">Aktif</span>' : '-'}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="editTA('${t.id}')" class="text-blue-500 p-1"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button onclick="deleteData('tahun_akademik','${t.id}')" class="text-red-500 p-1"><i class="ph-bold ph-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+
+            let rowsKls = kls.map((k, i) => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${k.nama_kelas}</td>
+                    <td class="p-3 text-sm">${k.tingkat}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="editKelas('${k.id}')" class="text-blue-500 p-1"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button onclick="deleteData('kelas','${k.id}')" class="text-red-500 p-1"><i class="ph-bold ph-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="mb-6">
+                    <h1 class="text-2xl font-bold text-slate-800">Tahun Akademik & Kelas</h1>
+                    <p class="text-slate-500 text-sm">Kelola tahun ajaran, semester, dan kelompok kelas.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-lg text-slate-800">Daftar Tahun Akademik</h3>
+                            <button onclick="editTA()" class="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-secondary flex items-center gap-1"><i class="ph-bold ph-plus"></i> Tambah TA</button>
+                        </div>
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
+                                <tr><th class="p-2 w-10">No</th><th class="p-2">Tahun & Semester</th><th class="p-2">Status</th><th class="p-2 text-right">Aksi</th></tr>
+                            </thead>
+                            <tbody>${rowsTA || '<tr><td colspan="4" class="p-4 text-center text-slate-400 text-xs">Belum ada data</td></tr>'}</tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-lg text-slate-800">Daftar Kelas</h3>
+                            <button onclick="editKelas()" class="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-secondary flex items-center gap-1"><i class="ph-bold ph-plus"></i> Tambah Kelas</button>
+                        </div>
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
+                                <tr><th class="p-2 w-10">No</th><th class="p-2">Nama Kelas</th><th class="p-2">Tingkat / Modul</th><th class="p-2 text-right">Aksi</th></tr>
+                            </thead>
+                            <tbody>${rowsKls || '<tr><td colspan="4" class="p-4 text-center text-slate-400 text-xs">Belum ada data</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.editTA = async (id = null) => {
+            let data = { nama_tahun: '2025/2026', semester: 'Ganjil', aktif: false };
+            if (id) data = await API.getOne('tahun_akademik', id);
+            openModal(id ? 'Edit Tahun Akademik' : 'Tambah Tahun Akademik', `
+                <form class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Tahun Ajaran (Contoh: 2025/2026)</label>
+                        <input type="text" id="ta_nama" value="${data.nama_tahun}" required class="w-full p-2 border rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Semester</label>
+                        <select id="ta_sem" class="w-full p-2 border rounded text-sm">
+                            <option value="Ganjil" ${data.semester==='Ganjil'?'selected':''}>Ganjil</option>
+                            <option value="Genap" ${data.semester==='Genap'?'selected':''}>Genap</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="ta_aktif" ${data.aktif?'checked':''} class="rounded">
+                        <label class="text-sm text-slate-700">Jadikan Tahun Akademik Aktif</label>
+                    </div>
+                </form>
+            `, `<button onclick="closeModal()" class="px-4 py-2 text-sm">Batal</button>
+                <button onclick="saveTA('${id || ''}')" class="px-4 py-2 text-sm bg-primary text-white rounded">Simpan</button>`);
+        };
+
+        window.saveTA = async (id) => {
+            const data = { nama_tahun: $('ta_nama').value, semester: $('ta_sem').value, aktif: $('ta_aktif').checked };
+            await API.save('tahun_akademik', data, id || null);
+            closeModal(); showToast("Tahun akademik disimpan"); renderContent();
+        };
+
+        window.editKelas = async (id = null) => {
+            let data = { nama_kelas: '', tingkat: 'Diniyah' };
+            if (id) data = await API.getOne('kelas', id);
+            openModal(id ? 'Edit Kelas' : 'Tambah Kelas', `
+                <form class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Nama Kelas</label>
+                        <input type="text" id="k_nama" value="${data.nama_kelas}" required class="w-full p-2 border rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Kategori / Tingkat</label>
+                        <select id="k_tingkat" class="w-full p-2 border rounded text-sm">
+                            <option value="Diniyah" ${data.tingkat==='Diniyah'?'selected':''}>Diniyah</option>
+                            <option value="Qur'an" ${data.tingkat==='Qur\'an'?'selected':''}>Qur'an</option>
+                            <option value="B. Arab" ${data.tingkat==='B. Arab'?'selected':''}>B. Arab</option>
+                        </select>
+                    </div>
+                </form>
+            `, `<button onclick="closeModal()" class="px-4 py-2 text-sm">Batal</button>
+                <button onclick="saveKelas('${id || ''}')" class="px-4 py-2 text-sm bg-primary text-white rounded">Simpan</button>`);
+        };
+
+        window.saveKelas = async (id) => {
+            const data = { nama_kelas: $('k_nama').value, tingkat: $('k_tingkat').value };
+            await API.save('kelas', data, id || null);
+            closeModal(); showToast("Kelas disimpan"); renderContent();
+        };
+
+        async function viewMasterSantri(container) {
+            const santris = await API.getList('santri');
+            const tas = await API.getList('tahun_akademik');
+            const klasses = await API.getList('kelas');
+
+            let filteredSantris = santris.filter(s => {
+                let matchTA = window._santriFilterTA ? s.id_tahun === window._santriFilterTA : true;
+                let matchKD = window._santriFilterKelasDiniyah ? s.kelas_diniyah === window._santriFilterKelasDiniyah : true;
+                return matchTA && matchKD;
+            });
+
+            let rows = filteredSantris.map((s, i) => {
+                const ta = tas.find(t => t.id === s.id_tahun);
+                return `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-center"><input type="checkbox" class="santri-checkbox rounded" data-id="${s.id}" onchange="toggleSelectAllState()"></td>
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-mono text-xs">${s.nis || '-'}</td>
+                    <td class="p-3 font-medium text-sm">${s.nama_santri}</td>
+                    <td class="p-3 text-xs">${ta ? `${ta.nama_tahun} (${ta.semester})` : '-'}</td>
+                    <td class="p-3 text-sm">${s.kelas_diniyah || '-'}</td>
+                    <td class="p-3 text-sm">${s.kelas_quran || '-'}</td>
+                    <td class="p-3 text-sm">${s.kelas_b_arab || '-'}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="editSantri('${s.id}')" class="text-blue-500 p-1"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button onclick="deleteData('santri','${s.id}')" class="text-red-500 p-1"><i class="ph-bold ph-trash"></i></button>
+                    </td>
+                </tr>
+            `;
+            }).join('');
+
+            if(filteredSantris.length === 0) rows = `<tr><td colspan="9" class="p-6 text-center text-slate-400">Tidak ada data santri sesuai filter</td></tr>`;
+
+            let taFilterOpts = `<option value="">-- Semua Tahun Akademik --</option>` + tas.map(t => `<option value="${t.id}" ${window._santriFilterTA===t.id?'selected':''}>${t.nama_tahun} (${t.semester})</option>`).join('');
+            let kDiniyahFilterOpts = `<option value="">-- Semua Kelas Diniyah --</option>` + klasses.filter(k=>k.tingkat==='Diniyah').map(k => `<option value="${k.nama_kelas}" ${window._santriFilterKelasDiniyah===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+
+            container.innerHTML = `
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">Data Santri & NIS</h1>
+                        <p class="text-slate-500 text-sm">Kelola identitas, NIS, kelas, dan import excel.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="deleteSelectedSantri()" id="btn-bulk-delete" class="hidden bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium items-center gap-2">
+                            <i class="ph-bold ph-trash"></i> Hapus Terpilih
+                        </button>
+                        <button onclick="downloadTemplateSantri()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                            <i class="ph-bold ph-file-arrow-down"></i> Template Excel
+                        </button>
+                        <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer">
+                            <i class="ph-bold ph-upload-simple"></i> Import Excel
+                            <input type="file" id="up_santri_excel" accept=".xlsx, .xls" class="hidden" onchange="previewSantriExcel(event)">
+                        </label>
+                        <button onclick="editSantri()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-secondary transition flex items-center gap-2">
+                            <i class="ph-bold ph-plus"></i> Tambah Santri
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-4 items-center">
+                    <div class="flex items-center gap-2 text-sm text-slate-600 font-semibold"><i class="ph-bold ph-funnel"></i> Filter:</div>
+                    <div class="flex-1 min-w-[200px]">
+                        <select id="filter_ta" onchange="window._santriFilterTA=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${taFilterOpts}</select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <select id="filter_kd" onchange="window._santriFilterKelasDiniyah=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${kDiniyahFilterOpts}</select>
+                    </div>
+                    ${(window._santriFilterTA || window._santriFilterKelasDiniyah) ? `<button onclick="window._santriFilterTA=''; window._santriFilterKelasDiniyah=''; renderContent();" class="text-xs text-red-500 hover:underline">Reset Filter</button>` : ''}
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 w-10 text-center"><input type="checkbox" id="select-all-santri" onchange="toggleSelectAllSantri(this)" class="rounded"></th>
+                                <th class="p-3 w-10">No</th>
+                                <th class="p-3 w-28">NIS</th>
+                                <th class="p-3">Nama Santri</th>
+                                <th class="p-3">Tahun Akademik</th>
+                                <th class="p-3">Kelas Diniyah</th>
+                                <th class="p-3">Kelas Qur'an</th>
+                                <th class="p-3">Kelas B. Arab</th>
+                                <th class="p-3 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        window.toggleSelectAllSantri = (master) => {
+            const checkboxes = document.querySelectorAll('.santri-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+            toggleSelectAllState();
+        };
+
+        window.toggleSelectAllState = () => {
+            const checkboxes = document.querySelectorAll('.santri-checkbox:checked');
+            const bulkBtn = $('btn-bulk-delete');
+            if(checkboxes.length > 0) {
+                bulkBtn.classList.remove('hidden');
+                bulkBtn.classList.add('flex');
+            } else {
+                bulkBtn.classList.add('hidden');
+                bulkBtn.classList.remove('flex');
+            }
+        };
+
+        window.deleteSelectedSantri = async () => {
+            const checkboxes = document.querySelectorAll('.santri-checkbox:checked');
+            if(checkboxes.length === 0) return;
+
+            if(confirm(`Yakin ingin menghapus ${checkboxes.length} data santri yang dipilih?`)) {
+                for(let cb of checkboxes) {
+                    const id = cb.getAttribute('data-id');
+                    await API.delete('santri', id);
+                }
+                showToast("Data santri terpilih berhasil dihapus!");
+                renderContent();
+            }
+        };
+
+        window.editSantri = async (id = null) => {
+            let data = { nis: '', nama_santri: '', id_tahun: '', kelas_diniyah: '', kelas_quran: '', kelas_b_arab: '' };
+            if (id) data = await API.getOne('santri', id);
+            
+            const tas = await API.getList('tahun_akademik');
+            const klasses = await API.getList('kelas');
+
+            let taOpts = `<option value="">-- Pilih Tahun Akademik --</option>` + tas.map(t => `<option value="${t.id}" ${data.id_tahun===t.id?'selected':''}>${t.nama_tahun} (${t.semester})</option>`).join('');
+            let kDiniyahOpts = `<option value="">-- Pilih --</option>` + klasses.filter(k => k.tingkat==='Diniyah').map(k => `<option value="${k.nama_kelas}" ${data.kelas_diniyah===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+            let kQuranOpts = `<option value="">-- Pilih --</option>` + klasses.filter(k => k.tingkat==='Qur\'an').map(k => `<option value="${k.nama_kelas}" ${data.kelas_quran===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+            let kArabOpts = `<option value="">-- Pilih --</option>` + klasses.filter(k => k.tingkat==='B. Arab').map(k => `<option value="${k.nama_kelas}" ${data.kelas_b_arab===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+
+            openModal(id ? 'Edit Santri' : 'Tambah Santri', `
+                <form id="form-santri" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Nomor Induk Santri (NIS)</label>
+                            <input type="text" id="i_nis" value="${data.nis || ''}" class="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Tahun Akademik</label>
+                            <select id="i_ta" class="w-full p-2 border border-slate-300 rounded text-sm">${taOpts}</select>
+                        </div>
+                        <div class="col-span-1 md:col-span-2">
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Nama Lengkap</label>
+                            <input type="text" id="i_nama" value="${data.nama_santri}" required class="w-full p-2 border border-slate-300 rounded text-sm outline-none focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Kelas Diniyah</label>
+                            <select id="i_kd" class="w-full p-2 border border-slate-300 rounded text-sm">${kDiniyahOpts}</select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Kelas Qur'an</label>
+                            <select id="i_kq" class="w-full p-2 border border-slate-300 rounded text-sm">${kQuranOpts}</select>
+                        </div>
+                        <div class="col-span-1 md:col-span-2">
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Kelas B. Arab</label>
+                            <select id="i_kb" class="w-full p-2 border border-slate-300 rounded text-sm">${kArabOpts}</select>
+                        </div>
+                    </div>
+                </form>
+            `, `
+                <button onclick="closeModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">Batal</button>
+                <button onclick="saveSantri('${id || ''}')" class="px-4 py-2 text-sm bg-primary text-white rounded hover:bg-secondary">Simpan</button>
+            `);
+        };
+
+        window.saveSantri = async (id) => {
+            const currentObj = id ? await API.getOne('santri', id) : {};
+            const data = {
+                ...currentObj,
+                nis: $('i_nis').value,
+                nama_santri: $('i_nama').value,
+                id_tahun: $('i_ta').value,
+                kelas_diniyah: $('i_kd').value, 
+                kelas_quran: $('i_kq').value, 
+                kelas_b_arab: $('i_kb').value
+            };
+            if(!data.nama_santri) return showToast("Nama wajib diisi", "error");
+            
+            await API.save('santri', data, id || null);
+            closeModal();
+            showToast("Data santri disimpan");
+            renderContent();
+        };
+
+        window.downloadTemplateSantri = () => {
+            const wsData = [
+                ["NIS", "NAMA_SANTRI", "KELAS_DINIYAH", "KELAS_QURAN", "KELAS_B_ARAB"],
+                ["1001", "Contoh Santri 1", "1 A", "Jilid 4", "Mubtadi"]
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Data Santri");
+            XLSX.writeFile(wb, "Template_Data_Santri.xlsx");
+        };
+
+        window.previewSantriExcel = (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const data = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(data, {type: 'array'});
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                
+                const validRows = rows.filter(r => r.NAMA_SANTRI);
+                if(validRows.length === 0) return showToast("Format excel santri tidak valid", "error");
+
+                window._tempSantriExcel = validRows;
+
+                let trs = validRows.map(r => `
+                    <tr>
+                        <td class="p-2 border text-xs">${r.NIS || '-'}</td>
+                        <td class="p-2 border text-xs">${r.NAMA_SANTRI}</td>
+                        <td class="p-2 border text-xs">${r.KELAS_DINIYAH || '-'}</td>
+                        <td class="p-2 border text-xs">${r.KELAS_QURAN || '-'}</td>
+                        <td class="p-2 border text-xs">${r.KELAS_B_ARAB || '-'}</td>
+                    </tr>
+                `).join('');
+
+                openModal("Preview Import Data Santri", `
+                    <div class="max-h-[50vh] overflow-y-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-100">
+                                <th class="p-2 border text-xs">NIS</th>
+                                <th class="p-2 border text-xs">Nama Santri</th>
+                                <th class="p-2 border text-xs">Diniyah</th>
+                                <th class="p-2 border text-xs">Qur'an</th>
+                                <th class="p-2 border text-xs">B. Arab</th>
+                            </thead>
+                            <tbody>${trs}</tbody>
+                        </table>
+                    </div>
+                `, `<button onclick="closeModal()" class="px-4 py-2 text-sm">Batal</button>
+                    <button onclick="commitSantriExcel()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm">Simpan Data Santri</button>`);
+            };
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
+        };
+
+        window.commitSantriExcel = async () => {
+            const rows = window._tempSantriExcel;
+            if(!rows) return;
+
+            const activeTA = (await API.getList('tahun_akademik')).find(t => t.aktif);
+
+            for(let r of rows) {
+                const newSantri = {
+                    nis: String(r.NIS || ''),
+                    nama_santri: r.NAMA_SANTRI,
+                    id_tahun: activeTA ? activeTA.id : '',
+                    kelas_diniyah: r.KELAS_DINIYAH || '',
+                    kelas_quran: r.KELAS_QURAN || '',
+                    kelas_b_arab: r.KELAS_B_ARAB || '',
+                    absen_jamaah: 0, absen_quran: 0, absen_b_arab: 0, absen_diniyah: 0,
+                    catatan_pengasuh: ''
+                };
+                await API.save('santri', newSantri);
+            }
+            closeModal();
+            showToast("Data santri berhasil diimpor!");
+            renderContent();
+        };
+
+        async function viewAbsensiSantri(container) {
+            const santris = await API.getList('santri');
+            let rows = santris.map((s, i) => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${s.nama_santri}</td>
+                    <td class="p-2 text-center"><input type="number" class="w-20 p-1 border rounded text-center text-sm abs-input" data-id="${s.id}" data-f="absen_jamaah" value="${s.absen_jamaah || 0}"></td>
+                    <td class="p-2 text-center"><input type="number" class="w-20 p-1 border rounded text-center text-sm abs-input" data-id="${s.id}" data-f="absen_quran" value="${s.absen_quran || 0}"></td>
+                    <td class="p-2 text-center"><input type="number" class="w-20 p-1 border rounded text-center text-sm abs-input" data-id="${s.id}" data-f="absen_b_arab" value="${s.absen_b_arab || 0}"></td>
+                    <td class="p-2 text-center"><input type="number" class="w-20 p-1 border rounded text-center text-sm abs-input" data-id="${s.id}" data-f="absen_diniyah" value="${s.absen_diniyah || 0}"></td>
+                </tr>
+            `).join('');
+
+            if(santris.length === 0) rows = `<tr><td colspan="6" class="p-6 text-center text-slate-400">Belum ada data santri</td></tr>`;
+
+            container.innerHTML = `
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">Absensi Kehadiran Santri</h1>
+                        <p class="text-slate-500 text-sm">Kelola rekapitulasi ketidakhadiran santri.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="downloadAbsensiExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                            <i class="ph-bold ph-file-arrow-down"></i> Template Excel
+                        </button>
+                        <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer">
+                            <i class="ph-bold ph-upload-simple"></i> Import Excel
+                            <input type="file" id="up_absensi_excel" accept=".xlsx, .xls" class="hidden" onchange="previewAbsensiExcel(event)">
+                        </label>
+                        <button onclick="saveAbsensiMassal()" class="bg-primary hover:bg-secondary text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"><i class="ph-bold ph-floppy-disk"></i> Simpan</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 w-10">No</th>
+                                <th class="p-3">Nama Santri</th>
+                                <th class="p-3 text-center w-28">Jamaah</th>
+                                <th class="p-3 text-center w-28">Qur'an</th>
+                                <th class="p-3 text-center w-28">B. Arab</th>
+                                <th class="p-3 text-center w-28">Diniyah</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        window.saveAbsensiMassal = async () => {
+            const inputs = document.querySelectorAll('.abs-input');
+            let updates = {};
+            inputs.forEach(inp => {
+                const sId = inp.getAttribute('data-id');
+                const field = inp.getAttribute('data-f');
+                if(!updates[sId]) updates[sId] = {};
+                updates[sId][field] = parseInt(inp.value) || 0;
+            });
+
+            for(const sId in updates) {
+                const current = await API.getOne('santri', sId);
+                if(current) {
+                    const merged = { ...current, ...updates[sId] };
+                    await API.save('santri', merged, sId);
+                }
+            }
+            showToast("Data absensi berhasil disimpan!");
+            renderContent();
+        };
+
+        window.downloadAbsensiExcel = async () => {
+            const santris = await API.getList('santri');
+            const wsData = [
+                ["ID_SANTRI", "NAMA_SANTRI", "ABSEN_JAMAAH", "ABSEN_QURAN", "ABSEN_B_ARAB", "ABSEN_DINIYAH"]
+            ];
+            santris.forEach(s => {
+                wsData.push([s.id, s.nama_santri, s.absen_jamaah || 0, s.absen_quran || 0, s.absen_b_arab || 0, s.absen_diniyah || 0]);
+            });
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Rekap Absensi");
+            XLSX.writeFile(wb, "Template_Absensi_Santri.xlsx");
+        };
+
+        window.previewAbsensiExcel = (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const data = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(data, {type: 'array'});
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                
+                const validRows = rows.filter(r => r.ID_SANTRI);
+                if(validRows.length === 0) return showToast("Format excel tidak valid", "error");
+
+                window._tempAbsensiExcel = validRows;
+
+                let trs = validRows.map(r => `
+                    <tr>
+                        <td class="p-2 border text-xs">${r.NAMA_SANTRI}</td>
+                        <td class="p-2 border text-xs text-center">${r.ABSEN_JAMAAH}</td>
+                        <td class="p-2 border text-xs text-center">${r.ABSEN_QURAN}</td>
+                        <td class="p-2 border text-xs text-center">${r.ABSEN_B_ARAB}</td>
+                        <td class="p-2 border text-xs text-center">${r.ABSEN_DINIYAH}</td>
+                    </tr>
+                `).join('');
+
+                openModal("Preview Import Absensi", `
+                    <div class="max-h-[50vh] overflow-y-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-100"><th class="p-2 border text-xs">Santri</th><th class="p-2 border text-xs text-center">Jamaah</th><th class="p-2 border text-xs text-center">Qur'an</th><th class="p-2 border text-xs text-center">B. Arab</th><th class="p-2 border text-xs text-center">Diniyah</th></thead>
+                            <tbody>${trs}</tbody>
+                        </table>
+                    </div>
+                `, `<button onclick="closeModal()" class="px-4 py-2 text-sm">Batal</button>
+                    <button onclick="commitAbsensiExcel()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm">Simpan Data Absensi</button>`);
+            };
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
+        };
+
+        window.commitAbsensiExcel = async () => {
+            const rows = window._tempAbsensiExcel;
+            if(!rows) return;
+
+            for(let r of rows) {
+                const current = await API.getOne('santri', r.ID_SANTRI);
+                if(current) {
+                    const updated = {
+                        ...current,
+                        absen_jamaah: parseInt(r.ABSEN_JAMAAH) || 0,
+                        absen_quran: parseInt(r.ABSEN_QURAN) || 0,
+                        absen_b_arab: parseInt(r.ABSEN_B_ARAB) || 0,
+                        absen_diniyah: parseInt(r.ABSEN_DINIYAH) || 0
+                    };
+                    await API.save('santri', updated, r.ID_SANTRI);
+                }
+            }
+            closeModal();
+            showToast("Absensi berhasil diimpor!");
+            renderContent();
+        };
+
+        async function viewCatatanPengasuh(container) {
+            const santris = await API.getList('santri');
+            const klasses = await API.getList('kelas');
+
+            let filteredSantris = santris.filter(s => {
+                let matchKD = window._cpFilterKelas ? String(s.kelas_diniyah).trim() === String(window._cpFilterKelas).trim() : true;
+                return matchKD;
+            });
+
+            let rows = filteredSantris.map((s, i) => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${s.nama_santri}</td>
+                    <td class="p-3 text-xs text-slate-500">${s.kelas_diniyah || '-'}</td>
+                    <td class="p-2">
+                        <textarea class="w-full p-1.5 border rounded text-sm cp-input outline-none focus:border-primary" rows="2" data-id="${s.id}">${s.catatan_pengasuh || ''}</textarea>
+                    </td>
+                </tr>
+            `).join('');
+
+            if(filteredSantris.length === 0) rows = `<tr><td colspan="4" class="p-6 text-center text-slate-400">Tidak ada data santri sesuai filter kelas</td></tr>`;
+
+            let kDiniyahOpts = `<option value="">-- Semua Kelas Diniyah --</option>` + klasses.filter(k=>k.tingkat==='Diniyah').map(k => `<option value="${k.nama_kelas}" ${window._cpFilterKelas===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+
+            container.innerHTML = `
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">Catatan Pengasuh</h1>
+                        <p class="text-slate-500 text-sm">Kelola catatan khusus pengasuh berdasarkan filter kelas.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="downloadTemplateCatatanPengasuh()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                            <i class="ph-bold ph-file-arrow-down"></i> Template Excel
+                        </button>
+                        <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer">
+                            <i class="ph-bold ph-upload-simple"></i> Import Excel
+                            <input type="file" id="up_cp_excel" accept=".xlsx, .xls" class="hidden" onchange="previewCatatanPengasuhExcel(event)">
+                        </label>
+                        <button onclick="saveCatatanPengasuhMassal()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-secondary transition flex items-center gap-2">
+                            <i class="ph-bold ph-floppy-disk"></i> Simpan Catatan
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-4 items-center">
+                    <div class="flex items-center gap-2 text-sm text-slate-600 font-semibold"><i class="ph-bold ph-funnel"></i> Filter Kelas:</div>
+                    <div class="flex-1 min-w-[250px]">
+                        <select id="filter_cp_kd" onchange="window._cpFilterKelas=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${kDiniyahOpts}</select>
+                    </div>
+                    ${window._cpFilterKelas ? `<button onclick="window._cpFilterKelas=''; renderContent();" class="text-xs text-red-500 hover:underline">Reset Filter</button>` : ''}
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 w-10">No</th>
+                                <th class="p-3 w-1/3">Nama Santri</th>
+                                <th class="p-3 w-32">Kelas Diniyah</th>
+                                <th class="p-3">Catatan Pengasuh</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        window.saveCatatanPengasuhMassal = async () => {
+            const inputs = document.querySelectorAll('.cp-input');
+            for(let inp of inputs) {
+                const sId = inp.getAttribute('data-id');
+                const val = inp.value;
+                const current = await API.getOne('santri', sId);
+                if(current) {
+                    current.catatan_pengasuh = val;
+                    await API.save('santri', current, sId);
+                }
+            }
+            showToast("Catatan pengasuh berhasil disimpan!");
+            renderContent();
+        };
+
+        window.downloadTemplateCatatanPengasuh = async () => {
+            const santris = await API.getList('santri');
+            const filtered = santris.filter(s => window._cpFilterKelas ? String(s.kelas_diniyah).trim() === String(window._cpFilterKelas).trim() : true);
+            
+            const wsData = [
+                ["ID_SANTRI", "NAMA_SANTRI", "KELAS_DINIYAH", "CATATAN_PENGASUH"]
+            ];
+            filtered.forEach(s => {
+                wsData.push([s.id, s.nama_santri, s.kelas_diniyah || '', s.catatan_pengasuh || '']);
+            });
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Catatan Pengasuh");
+            XLSX.writeFile(wb, `Template_Catatan_Pengasuh_${window._cpFilterKelas ? window._cpFilterKelas.replace(/[^a-zA-Z0-9]/g, '_') : 'Semua'}.xlsx`);
+        };
+
+        window.previewCatatanPengasuhExcel = (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const data = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(data, {type: 'array'});
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                
+                const validRows = rows.filter(r => r.ID_SANTRI);
+                if(validRows.length === 0) return showToast("Format excel tidak valid", "error");
+
+                window._tempCPExcel = validRows;
+
+                let trs = validRows.map(r => `
+                    <tr>
+                        <td class="p-2 border text-xs">${r.NAMA_SANTRI}</td>
+                        <td class="p-2 border text-xs">${r.KELAS_DINIYAH || '-'}</td>
+                        <td class="p-2 border text-xs">${r.CATATAN_PENGASUH || ''}</td>
+                    </tr>
+                `).join('');
+
+                openModal("Preview Import Catatan Pengasuh", `
+                    <div class="max-h-[50vh] overflow-y-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-100"><th class="p-2 border text-xs">Nama Santri</th><th class="p-2 border text-xs">Kelas</th><th class="p-2 border text-xs">Catatan Pengasuh</th></thead>
+                            <tbody>${trs}</tbody>
+                        </table>
+                    </div>
+                `, `<button onclick="closeModal()" class="px-4 py-2 text-sm">Batal</button>
+                    <button onclick="commitCatatanPengasuhExcel()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm">Simpan Catatan</button>`);
+            };
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
+        };
+
+        window.commitCatatanPengasuhExcel = async () => {
+            const rows = window._tempCPExcel;
+            if(!rows) return;
+
+            for(let r of rows) {
+                const current = await API.getOne('santri', r.ID_SANTRI);
+                if(current) {
+                    current.catatan_pengasuh = r.CATATAN_PENGASUH || '';
+                    await API.save('santri', current, r.ID_SANTRI);
+                }
+            }
+            closeModal();
+            showToast("Catatan pengasuh berhasil diimpor!");
+            renderContent();
+        };
+
+        async function viewMasterMapel(container) {
+            const mapels = await API.getList('mapel');
+            let rows = mapels.map((m, i) => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${m.nama_mapel}</td>
+                    <td class="p-3 text-sm">${m.kkm}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="editMapel('${m.id}')" class="text-blue-500 p-1"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button onclick="deleteData('mapel','${m.id}')" class="text-red-500 p-1"><i class="ph-bold ph-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+            if(mapels.length === 0) rows = `<tr><td colspan="4" class="p-6 text-center text-slate-400">Belum ada data</td></tr>`;
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-2xl font-bold text-slate-800">Data Mata Pelajaran</h1>
+                    <button onclick="editMapel()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-secondary transition flex items-center gap-2"><i class="ph-bold ph-plus"></i> Tambah Mapel</button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+                            <tr><th class="p-3 w-10">No</th><th class="p-3">Nama Mapel</th><th class="p-3">KKM</th><th class="p-3 text-right">Aksi</th></tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        
+        window.editMapel = async (id = null) => {
+            let data = { nama_mapel: '', kkm: 70 };
+            if (id) data = await API.getOne('mapel', id);
+            openModal(id ? 'Edit Mapel' : 'Tambah Mapel', `
+                <form class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Nama Mata Pelajaran</label>
+                        <input type="text" id="m_nama" value="${data.nama_mapel}" required class="w-full p-2 border rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Nilai KKM</label>
+                        <input type="number" id="m_kkm" value="${data.kkm}" required class="w-full p-2 border rounded text-sm">
+                    </div>
+                </form>
+            `, `<button onclick="closeModal()" class="px-4 py-2 text-sm text-slate-600 rounded">Batal</button>
+                <button onclick="saveMapel('${id || ''}')" class="px-4 py-2 text-sm bg-primary text-white rounded">Simpan</button>`);
+        };
+
+        window.saveMapel = async (id) => {
+            const data = { nama_mapel: $('m_nama').value, kkm: parseInt($('m_kkm').value) || 0 };
+            if(!data.nama_mapel) return showToast("Nama wajib diisi", "error");
+            await API.save('mapel', data, id || null);
+            closeModal(); showToast("Mapel disimpan"); renderContent();
+        };
+
+        async function viewMasterGuru(container) {
+            const gurus = await API.getList('guru');
+            const mapels = await API.getList('mapel');
+            
+            let rows = gurus.map((g, i) => {
+                const mapel = mapels.find(m => m.id === g.id_mapel_diampu);
+                return `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="p-3 text-sm">${i+1}</td>
+                    <td class="p-3 font-medium text-sm">${g.nama_guru}</td>
+                    <td class="p-3 text-sm">${g.username}</td>
+                    <td class="p-3 text-sm">${mapel ? mapel.nama_mapel : '-'}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="editGuru('${g.id}')" class="text-blue-500 p-1"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button onclick="deleteData('guru','${g.id}')" class="text-red-500 p-1"><i class="ph-bold ph-trash"></i></button>
+                    </td>
+                </tr>
+            `}).join('');
+            if(gurus.length === 0) rows = `<tr><td colspan="5" class="p-6 text-center text-slate-400">Belum ada data</td></tr>`;
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-2xl font-bold text-slate-800">Data Guru Pengampu</h1>
+                    <button onclick="editGuru()" class="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"><i class="ph-bold ph-plus"></i> Tambah Guru</button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+                            <tr><th class="p-3 w-10">No</th><th class="p-3">Nama Guru</th><th class="p-3">Username Login</th><th class="p-3">Mapel Diampu</th><th class="p-3 text-right">Aksi</th></tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        window.editGuru = async (id = null) => {
+            let data = { nama_guru: '', username: '', password: '', id_mapel_diampu: '' };
+            if (id) data = await API.getOne('guru', id);
+            const mapels = await API.getList('mapel');
+            let opts = `<option value="">-- Pilih Mapel --</option>` + mapels.map(m => `<option value="${m.id}" ${data.id_mapel_diampu===m.id?'selected':''}>${m.nama_mapel}</option>`).join('');
+
+            openModal(id ? 'Edit Guru' : 'Tambah Guru', `
+                <form class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Nama Guru</label>
+                        <input type="text" id="g_nama" value="${data.nama_guru}" required class="w-full p-2 border rounded text-sm">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Username Login</label>
+                            <input type="text" id="g_user" value="${data.username}" required class="w-full p-2 border rounded text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Password</label>
+                            <input type="text" id="g_pass" value="${data.password}" required class="w-full p-2 border rounded text-sm" placeholder="***">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Mapel Diampu</label>
+                        <select id="g_mapel" class="w-full p-2 border rounded text-sm">${opts}</select>
+                    </div>
+                </form>
+            `, `<button onclick="closeModal()" class="px-4 py-2 text-sm text-slate-600 rounded">Batal</button>
+                <button onclick="saveGuru('${id || ''}')" class="px-4 py-2 text-sm bg-primary text-white rounded">Simpan</button>`);
+        };
+
+        window.saveGuru = async (id) => {
+            const data = { 
+                nama_guru: $('g_nama').value, username: $('g_user').value, 
+                password: $('g_pass').value, id_mapel_diampu: $('g_mapel').value 
+            };
+            if(!data.nama_guru || !data.username || !data.password) return showToast("Semua field wajib diisi", "error");
+            await API.save('guru', data, id || null);
+            closeModal(); showToast("Data guru disimpan"); renderContent();
+        };
+
+        async function viewPengaturan(container) {
+            let data = await API.getOne('pengaturan', 'default') || { kop_image: '', ttd_pengasuh: '', nama_pengasuh: '', tanggal_cetak: '' };
+            
+            container.innerHTML = `
+                <div class="mb-6"><h1 class="text-2xl font-bold text-slate-800">Pengaturan Raport</h1></div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-3xl">
+                    <div class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Nama Pengasuh</label>
+                            <input type="text" id="p_nama" value="${data.nama_pengasuh || ''}" class="w-full p-2 border rounded outline-none focus:border-primary" placeholder="K.H. Fulan">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Tanggal Cetak Raport (Default)</label>
+                            <input type="text" id="p_tgl" value="${data.tanggal_cetak || ''}" class="w-full p-2 border rounded outline-none focus:border-primary" placeholder="Contoh: Malang, 15 Juni 2026">
+                            <p class="text-xs text-slate-400 mt-1">Akan otomatis tampil di bawah lembar cetak raport bagian tanda tangan.</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Kop Surat / Kop Pondok (Gambar)</label>
+                            <div class="flex gap-4 items-start">
+                                <div class="w-1/2">
+                                    <input type="file" id="p_kop" accept="image/*" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-secondary">
+                                    <p class="text-xs text-slate-400 mt-2">Disarankan rasio lebar, maks 1MB.</p>
+                                </div>
+                                <div class="w-1/2 border p-2 rounded flex justify-center bg-slate-50 h-24 items-center overflow-hidden" id="preview_kop">
+                                    ${data.kop_image ? `<img src="${data.kop_image}" class="max-h-full">` : '<span class="text-xs text-slate-400">Belum ada gambar</span>'}
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Tanda Tangan Pengasuh (Gambar, opsional)</label>
+                            <div class="flex gap-4 items-start">
+                                <div class="w-1/2">
+                                    <input type="file" id="p_ttd" accept="image/*" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-secondary">
+                                </div>
+                                <div class="w-1/2 border p-2 rounded flex justify-center bg-slate-50 h-24 items-center overflow-hidden" id="preview_ttd">
+                                    ${data.ttd_pengasuh ? `<img src="${data.ttd_pengasuh}" class="max-h-full">` : '<span class="text-xs text-slate-400">Belum ada TTD</span>'}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pt-4 border-t">
+                            <button onclick="savePengaturan()" class="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-secondary transition">Simpan Pengaturan</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            $('p_kop').addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    const base64 = await fileToBase64(file, 900);
+                    $('preview_kop').innerHTML = `<img src="${base64}" class="max-h-full">`;
+                    window._tempKop = base64;
+                }
+            });
+
+            $('p_ttd').addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    const base64 = await fileToBase64(file, 400);
+                    $('preview_ttd').innerHTML = `<img src="${base64}" class="max-h-full">`;
+                    window._tempTtd = base64;
+                }
+            });
+        }
+
+        window.savePengaturan = async () => {
+            const current = await API.getOne('pengaturan', 'default') || {};
+            const data = {
+                ...current,
+                nama_pengasuh: $('p_nama').value,
+                tanggal_cetak: $('p_tgl').value,
+                kop_image: window._tempKop !== undefined ? window._tempKop : (current.kop_image || ''),
+                ttd_pengasuh: window._tempTtd !== undefined ? window._tempTtd : (current.ttd_pengasuh || '')
+            };
+            await API.save('pengaturan', data, 'default');
+            showToast("Pengaturan berhasil disimpan!");
+            renderContent();
+        };
+
+        async function viewNilaiAdmin(container) {
+            const mapels = await API.getList('mapel');
+            const tas = await API.getList('tahun_akademik');
+            const klasses = await API.getList('kelas');
+
+            const selTA = window._nilaiAdminTA || '';
+            const selKD = window._nilaiAdminKD || '';
+            const selMapel = window._nilaiAdminMapel || (mapels[0] ? mapels[0].id : '');
+
+            window._nilaiAdminTA = selTA;
+            window._nilaiAdminKD = selKD;
+            window._nilaiAdminMapel = selMapel;
+
+            const santris = await API.getList('santri');
+            const nilais = selMapel ? await API.query('nilai', 'id_mapel', '==', selMapel) : [];
+
+            let filteredSantris = santris.filter(s => {
+                let matchTA = selTA ? s.id_tahun === selTA : true;
+                let matchKD = selKD ? String(s.kelas_diniyah).trim() === String(selKD).trim() : true;
+                return matchTA && matchKD;
+            });
+
+            let tableRows = filteredSantris.map((s, i) => {
+                const n = nilais.find(x => x.id_santri === s.id) || { harian_1: '', harian_2: '', harian_3: '', ujian_tulis: '', ujian_hafalan: '', status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: '' };
+                
+                const ut = n.ujian_tulis !== '' && n.ujian_tulis !== null && n.ujian_tulis !== undefined ? parseFloat(n.ujian_tulis) : null;
+                const uh = n.ujian_hafalan !== '' && n.ujian_hafalan !== null && n.ujian_hafalan !== undefined ? parseFloat(n.ujian_hafalan) : null;
+                
+                let finalUjian = '-';
+                if (ut !== null && uh !== null) {
+                    finalUjian = ((ut + uh) / 2).toFixed(1);
+                } else if (ut !== null) {
+                    finalUjian = ut;
+                } else if (uh !== null) {
+                    finalUjian = uh;
+                }
+
+                return `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="p-2 text-sm text-center">${i+1}</td>
+                        <td class="p-2 text-sm font-mono">${s.nis || '-'}</td>
+                        <td class="p-2 text-sm font-medium">${s.nama_santri}</td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm admin-n-input" data-id="${s.id}" data-f="harian_1" value="${n.harian_1 !== null && n.harian_1 !== undefined ? n.harian_1 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm admin-n-input" data-id="${s.id}" data-f="harian_2" value="${n.harian_2 !== null && n.harian_2 !== undefined ? n.harian_2 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm admin-n-input" data-id="${s.id}" data-f="harian_3" value="${n.harian_3 !== null && n.harian_3 !== undefined ? n.harian_3 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm admin-n-input" data-id="${s.id}" data-f="ujian_tulis" value="${n.ujian_tulis !== null && n.ujian_tulis !== undefined ? n.ujian_tulis : ''}" placeholder="Tulis"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm admin-n-input" data-id="${s.id}" data-f="ujian_hafalan" value="${n.ujian_hafalan !== null && n.ujian_hafalan !== undefined ? n.ujian_hafalan : ''}" placeholder="Hafalan"></td>
+                        <td class="p-2 text-center font-bold text-sm text-primary">${finalUjian}</td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs admin-n-input" data-id="${s.id}" data-f="status_quran">
+                                <option value="Lulus" ${n.status_quran === 'Lulus' ? 'selected' : ''}>Lulus</option>
+                                <option value="Tidak Lulus" ${n.status_quran === 'Tidak Lulus' ? 'selected' : ''}>Tdk Lulus</option>
+                            </select>
+                        </td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs admin-n-input" data-id="${s.id}" data-f="status_b_arab">
+                                <option value="Naik" ${n.status_b_arab === 'Naik' ? 'selected' : ''}>Naik</option>
+                                <option value="Tidak Naik" ${n.status_b_arab === 'Tidak Naik' ? 'selected' : ''}>Tdk Naik</option>
+                            </select>
+                        </td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs admin-n-input" data-id="${s.id}" data-f="status_diniyah">
+                                <option value="Naik" ${n.status_diniyah === 'Naik' ? 'selected' : ''}>Naik</option>
+                                <option value="Tidak Naik" ${n.status_diniyah === 'Tidak Naik' ? 'selected' : ''}>Tdk Naik</option>
+                            </select>
+                        </td>
+                        <td class="p-1"><input type="text" class="w-full p-1 border rounded text-sm admin-n-input" data-id="${s.id}" data-f="catatan_guru" value="${n.catatan_guru || ''}"></td>
+                    </tr>
+                `;
+            }).join('');
+
+            if(filteredSantris.length === 0) tableRows = `<tr><td colspan="13" class="p-6 text-center text-slate-400">Tidak ada data santri sesuai filter yang dipilih</td></tr>`;
+
+            let taOpts = `<option value="">-- Semua Tahun Akademik --</option>` + tas.map(t => `<option value="${t.id}" ${selTA===t.id?'selected':''}>${t.nama_tahun} (${t.semester})</option>`).join('');
+            let kdOpts = `<option value="">-- Semua Kelas Diniyah --</option>` + klasses.filter(k=>k.tingkat==='Diniyah').map(k => `<option value="${k.nama_kelas}" ${selKD===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+            let mapelOpts = mapels.map(m => `<option value="${m.id}" ${selMapel===m.id?'selected':''}>${m.nama_mapel} (KKM: ${m.kkm})</option>`).join('');
+
+            container.innerHTML = `
+                <div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">Manajemen Input Nilai & Excel</h1>
+                        <p class="text-slate-500 text-sm">Kelola input nilai Ujian Tulis & Hafalan beserta rata-ratanya.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="downloadTemplateExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                            <i class="ph-bold ph-file-arrow-down"></i> Template Excel
+                        </button>
+                        <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer">
+                            <i class="ph-bold ph-upload-simple"></i> Import Excel
+                            <input type="file" id="up_excel" accept=".xlsx, .xls" class="hidden" onchange="previewExcel()">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+                    <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="ph-bold ph-table text-primary"></i> Tabel Input Manual & Filter Preview</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Pilih Mata Pelajaran</label>
+                            <select id="admin_filter_mapel" onchange="window._nilaiAdminMapel=this.value; renderContent();" class="w-full p-2 border rounded text-sm font-semibold text-primary">${mapelOpts || '<option>Belum ada mapel</option>'}</select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Filter Tahun Akademik</label>
+                            <select id="admin_filter_ta" onchange="window._nilaiAdminTA=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${taOpts}</select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Filter Kelas Diniyah</label>
+                            <select id="admin_filter_kd" onchange="window._nilaiAdminKD=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${kdOpts}</select>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto border rounded-lg">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="p-2 w-10 text-center" rowspan="2">No</th>
+                                    <th class="p-2 w-24" rowspan="2">NIS</th>
+                                    <th class="p-2" rowspan="2">Nama Santri</th>
+                                    <th class="p-2 text-center" colspan="3">Nilai Harian (NH)</th>
+                                    <th class="p-2 text-center" colspan="3">Nilai Ujian (NU)</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Uj. Qur'an</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Uj. Arab</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Diniyah</th>
+                                    <th class="p-2" rowspan="2">Catatan Guru</th>
+                                </tr>
+                                <tr>
+                                    <th class="p-1 w-12 text-center">1</th>
+                                    <th class="p-1 w-12 text-center">2</th>
+                                    <th class="p-1 w-12 text-center">3</th>
+                                    <th class="p-1 w-16 text-center">Tulis</th>
+                                    <th class="p-1 w-16 text-center">Hafalan</th>
+                                    <th class="p-1 w-16 text-center">Rata²</th>
+                                </tr>
+                            </thead>
+                            <tbody>${tableRows}</tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-4 flex justify-end">
+                        <button onclick="saveAdminManualNilai('${selMapel}')" class="bg-primary hover:bg-secondary text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow transition flex items-center gap-2">
+                            <i class="ph-bold ph-floppy-disk"></i> Simpan / Konfirmasi Nilai
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.saveAdminManualNilai = async (mapelId) => {
+            if(!mapelId) return showToast("Pilih mata pelajaran terlebih dahulu", "error");
+            const inputs = document.querySelectorAll('.admin-n-input');
+            let draft = {};
+            inputs.forEach(inp => {
+                const sId = inp.getAttribute('data-id');
+                const field = inp.getAttribute('data-f');
+                if(!draft[sId]) draft[sId] = { 
+                    id_santri: sId, id_mapel: mapelId, 
+                    harian_1: null, harian_2: null, harian_3: null, ujian_tulis: null, ujian_hafalan: null, 
+                    status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: '' 
+                };
+                if(field === 'catatan_guru' || field.startsWith('status_')) {
+                    draft[sId][field] = inp.value;
+                } else {
+                    draft[sId][field] = inp.value === '' ? null : parseFloat(inp.value);
+                }
+            });
+
+            const existing = await API.query('nilai', 'id_mapel', '==', mapelId);
+            for (const sId in draft) {
+                const ex = existing.find(x => x.id_santri === sId);
+                if (ex) {
+                    await API.save('nilai', draft[sId], ex.id);
+                } else {
+                    const d = draft[sId];
+                    if(d.harian_1 !== null || d.harian_2 !== null || d.harian_3 !== null || d.ujian_tulis !== null || d.ujian_hafalan !== null || d.catatan_guru !== '') {
+                        await API.save('nilai', d);
+                    }
+                }
+            }
+            showToast("Nilai berhasil disimpan!");
+            renderContent();
+        };
+
+        async function viewNilaiGuru(container) {
+            const mapelId = currentUser.id_mapel_diampu;
+            if(!mapelId) {
+                container.innerHTML = `<div class="p-6 text-center text-slate-500">Anda belum ditugaskan mengampu mata pelajaran apapun oleh Admin.</div>`;
+                return;
+            }
+
+            const mapels = await API.getList('mapel');
+            const myMapel = mapels.find(m => m.id === mapelId) || { nama_mapel: 'Mata Pelajaran', kkm: 70 };
+            
+            const santris = await API.getList('santri');
+            const nilais = await API.query('nilai', 'id_mapel', '==', mapelId);
+
+            let tableRows = santris.map((s, i) => {
+                const n = nilais.find(x => x.id_santri === s.id) || { harian_1: '', harian_2: '', harian_3: '', ujian_tulis: '', ujian_hafalan: '', status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: '' };
+                
+                const ut = n.ujian_tulis !== '' && n.ujian_tulis !== null && n.ujian_tulis !== undefined ? parseFloat(n.ujian_tulis) : null;
+                const uh = n.ujian_hafalan !== '' && n.ujian_hafalan !== null && n.ujian_hafalan !== undefined ? parseFloat(n.ujian_hafalan) : null;
+                
+                let finalUjian = '-';
+                if (ut !== null && uh !== null) {
+                    finalUjian = ((ut + uh) / 2).toFixed(1);
+                } else if (ut !== null) {
+                    finalUjian = ut;
+                } else if (uh !== null) {
+                    finalUjian = uh;
+                }
+
+                return `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="p-2 text-sm text-center">${i+1}</td>
+                        <td class="p-2 text-sm font-mono">${s.nis || '-'}</td>
+                        <td class="p-2 text-sm font-medium">${s.nama_santri}</td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm guru-n-input" data-id="${s.id}" data-f="harian_1" value="${n.harian_1 !== null && n.harian_1 !== undefined ? n.harian_1 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm guru-n-input" data-id="${s.id}" data-f="harian_2" value="${n.harian_2 !== null && n.harian_2 !== undefined ? n.harian_2 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm guru-n-input" data-id="${s.id}" data-f="harian_3" value="${n.harian_3 !== null && n.harian_3 !== undefined ? n.harian_3 : ''}"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm guru-n-input" data-id="${s.id}" data-f="ujian_tulis" value="${n.ujian_tulis !== null && n.ujian_tulis !== undefined ? n.ujian_tulis : ''}" placeholder="Tulis"></td>
+                        <td class="p-1"><input type="number" class="w-full p-1 border rounded text-center text-sm guru-n-input" data-id="${s.id}" data-f="ujian_hafalan" value="${n.ujian_hafalan !== null && n.ujian_hafalan !== undefined ? n.ujian_hafalan : ''}" placeholder="Hafalan"></td>
+                        <td class="p-2 text-center font-bold text-sm text-primary">${finalUjian}</td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs guru-n-input" data-id="${s.id}" data-f="status_quran">
+                                <option value="Lulus" ${n.status_quran === 'Lulus' ? 'selected' : ''}>Lulus</option>
+                                <option value="Tidak Lulus" ${n.status_quran === 'Tidak Lulus' ? 'selected' : ''}>Tdk Lulus</option>
+                            </select>
+                        </td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs guru-n-input" data-id="${s.id}" data-f="status_b_arab">
+                                <option value="Naik" ${n.status_b_arab === 'Naik' ? 'selected' : ''}>Naik</option>
+                                <option value="Tidak Naik" ${n.status_b_arab === 'Tidak Naik' ? 'selected' : ''}>Tdk Naik</option>
+                            </select>
+                        </td>
+                        <td class="p-1">
+                            <select class="w-full p-1 border rounded text-xs guru-n-input" data-id="${s.id}" data-f="status_diniyah">
+                                <option value="Naik" ${n.status_diniyah === 'Naik' ? 'selected' : ''}>Naik</option>
+                                <option value="Tidak Naik" ${n.status_diniyah === 'Tidak Naik' ? 'selected' : ''}>Tdk Naik</option>
+                            </select>
+                        </td>
+                        <td class="p-1"><input type="text" class="w-full p-1 border rounded text-sm guru-n-input" data-id="${s.id}" data-f="catatan_guru" value="${n.catatan_guru || ''}"></td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">Input Nilai: ${myMapel.nama_mapel}</h1>
+                        <p class="text-slate-500 text-sm">KKM Mapel ini: <strong class="text-primary">${myMapel.kkm}</strong></p>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+                    <div class="overflow-x-auto border rounded-lg">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="p-2 w-10 text-center" rowspan="2">No</th>
+                                    <th class="p-2 w-24" rowspan="2">NIS</th>
+                                    <th class="p-2" rowspan="2">Nama Santri</th>
+                                    <th class="p-2 text-center" colspan="3">Nilai Harian (NH)</th>
+                                    <th class="p-2 text-center" colspan="3">Nilai Ujian (NU)</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Uj. Qur'an</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Uj. Arab</th>
+                                    <th class="p-2 w-20 text-center" rowspan="2">Diniyah</th>
+                                    <th class="p-2" rowspan="2">Catatan Guru</th>
+                                </tr>
+                                <tr>
+                                    <th class="p-1 w-12 text-center">1</th>
+                                    <th class="p-1 w-12 text-center">2</th>
+                                    <th class="p-1 w-12 text-center">3</th>
+                                    <th class="p-1 w-16 text-center">Tulis</th>
+                                    <th class="p-1 w-16 text-center">Hafalan</th>
+                                    <th class="p-1 w-16 text-center">Rata²</th>
+                                </tr>
+                            </thead>
+                            <tbody>${tableRows}</tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-4 flex justify-end">
+                        <button onclick="saveGuruManualNilai('${mapelId}')" class="bg-primary hover:bg-secondary text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow transition flex items-center gap-2">
+                            <i class="ph-bold ph-floppy-disk"></i> Simpan / Konfirmasi Nilai
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.saveGuruManualNilai = async (mapelId) => {
+            const inputs = document.querySelectorAll('.guru-n-input');
+            let draft = {};
+            inputs.forEach(inp => {
+                const sId = inp.getAttribute('data-id');
+                const field = inp.getAttribute('data-f');
+                if(!draft[sId]) draft[sId] = { 
+                    id_santri: sId, id_mapel: mapelId, 
+                    harian_1: null, harian_2: null, harian_3: null, ujian_tulis: null, ujian_hafalan: null, 
+                    status_quran: 'Lulus', status_b_arab: 'Naik', status_diniyah: 'Naik', catatan_guru: '' 
+                };
+                if(field === 'catatan_guru' || field.startsWith('status_')) {
+                    draft[sId][field] = inp.value;
+                } else {
+                    draft[sId][field] = inp.value === '' ? null : parseFloat(inp.value);
+                }
+            });
+
+            const existing = await API.query('nilai', 'id_mapel', '==', mapelId);
+            for (const sId in draft) {
+                const ex = existing.find(x => x.id_santri === sId);
+                if (ex) {
+                    await API.save('nilai', draft[sId], ex.id);
+                } else {
+                    const d = draft[sId];
+                    if(d.harian_1 !== null || d.harian_2 !== null || d.harian_3 !== null || d.ujian_tulis !== null || d.ujian_hafalan !== null || d.catatan_guru !== '') {
+                        await API.save('nilai', d);
+                    }
+                }
+            }
+            showToast("Nilai berhasil disimpan!");
+            renderContent();
+        };
+
+        async function viewCetak(container) {
+            const santris = await API.getList('santri');
+            const tas = await API.getList('tahun_akademik');
+            const klasses = await API.getList('kelas');
+
+            const selTA = window._cetakFilterTA || '';
+            const selKD = window._cetakFilterKD || '';
+            const selSantriId = window._cetakFilterSantri || '';
+
+            const filteredSantris = santris.filter(s => {
+                let matchTA = selTA ? s.id_tahun === selTA : true;
+                let matchKD = selKD ? String(s.kelas_diniyah).trim() === String(selKD).trim() : true;
+                let matchSantri = selSantriId ? s.id === selSantriId : true;
+                return matchTA && matchKD && matchSantri;
+            });
+
+            let taOpts = `<option value="">-- Semua Tahun Akademik --</option>` + tas.map(t => `<option value="${t.id}" ${selTA===t.id?'selected':''}>${t.nama_tahun} (${t.semester})</option>`).join('');
+            let kdOpts = `<option value="">-- Semua Kelas Diniyah --</option>` + klasses.filter(k=>k.tingkat==='Diniyah').map(k => `<option value="${k.nama_kelas}" ${selKD===k.nama_kelas?'selected':''}>${k.nama_kelas}</option>`).join('');
+            let santriOpts = `<option value="">-- Semua / Cari Siswa --</option>` + santris.map(s => `<option value="${s.id}" ${selSantriId===s.id?'selected':''}>${s.nama_santri} (NIS: ${s.nis || '-'})</option>`).join('');
+
+            let santriListHtml = '';
+            if (filteredSantris.length > 0) {
+                santriListHtml = filteredSantris.map((s, idx) => `
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+                        <div class="flex justify-between items-center mb-4 pb-2 border-b">
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-lg">${idx + 1}. ${s.nama_santri} <span class="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded ml-2">NIS: ${s.nis || '-'}</span></h3>
+                                <p class="text-xs text-slate-500">Kelas Diniyah: ${s.kelas_diniyah || '-'} | Qur'an: ${s.kelas_quran || '-'} | B. Arab: ${s.kelas_b_arab || '-'}</p>
+                            </div>
+                            <button onclick="prosesCetakSatuSantri('${s.id}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow">
+                                <i class="ph-bold ph-printer"></i> Cetak Raport Ini
+                            </button>
+                        </div>
+                        <div class="border rounded-lg p-4 bg-slate-50 overflow-x-auto preview-card-santri" id="preview-santri-${s.id}"></div>
+                    </div>
+                `).join('');
+            } else {
+                santriListHtml = `<div class="bg-white p-8 rounded-xl text-center text-slate-400 border border-slate-200">Tidak ada santri yang sesuai dengan filter yang dipilih.</div>`;
+            }
+
+            container.innerHTML = `
+                <div class="mb-6">
+                    <h1 class="text-2xl font-bold text-slate-800">Cetak Raport (Folio/F4)</h1>
+                    <p class="text-slate-500 text-sm">Filter berdasarkan Tahun Akademik, Kelas, atau Siswa tertentu untuk langsung menampilkan pratinjau raport.</p>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-4 items-center">
+                    <div class="flex items-center gap-2 text-sm text-slate-600 font-semibold"><i class="ph-bold ph-funnel"></i> Filter Cetak:</div>
+                    <div class="flex-1 min-w-[180px]">
+                        <select id="cetak_filter_ta" onchange="window._cetakFilterTA=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${taOpts}</select>
+                    </div>
+                    <div class="flex-1 min-w-[180px]">
+                        <select id="cetak_filter_kd" onchange="window._cetakFilterKD=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${kdOpts}</select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <select id="cetak_filter_santri" onchange="window._cetakFilterSantri=this.value; renderContent();" class="w-full p-2 border rounded text-sm">${santriOpts}</select>
+                    </div>
+                    ${(selTA || selKD || selSantriId) ? `<button onclick="window._cetakFilterTA=''; window._cetakFilterKD=''; window._cetakFilterSantri=''; renderContent();" class="text-xs text-red-500 hover:underline">Reset</button>` : ''}
+                    ${filteredSantris.length > 0 ? `
+                        <button onclick="prosesCetakKelasAktif()" class="bg-primary hover:bg-secondary text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow ml-auto">
+                            <i class="ph-bold ph-printer"></i> Cetak Semua (${filteredSantris.length} Santri)
+                        </button>
+                    ` : ''}
+                </div>
+
+                <div id="wrapper-preview-list">
+                    ${santriListHtml}
+                </div>
+            `;
+
+            if (filteredSantris.length > 0) {
+                setTimeout(async () => {
+                    for(let s of filteredSantris) {
+                        const htmlContent = await generateRaportHTML(s.id);
+                        const el = document.getElementById(`preview-santri-${s.id}`);
+                        if(el) el.innerHTML = htmlContent;
+                    }
+                }, 50);
+            }
+        };
+
+        window.prosesCetakSatuSantri = async (sId) => {
+            const htmlContent = await generateRaportHTML(sId);
+            const pa = $('print-area');
+            pa.innerHTML = `<div style="page-break-after: always;">${htmlContent}</div>`;
+            setTimeout(() => { window.print(); }, 300);
+        };
+
+        window.prosesCetakKelasAktif = async () => {
+            const santris = await API.getList('santri');
+            const selTA = window._cetakFilterTA || '';
+            const selKD = window._cetakFilterKD || '';
+
+            const filteredSantris = santris.filter(s => {
+                let matchTA = selTA ? s.id_tahun === selTA : true;
+                let matchKD = selKD ? String(s.kelas_diniyah).trim() === String(selKD).trim() : true;
+                return matchTA && matchKD;
+            });
+
+            if(filteredSantris.length === 0) return showToast("Tidak ada data untuk dicetak", "error");
+
+            showToast("Menyiapkan dokumen cetak massal...", "info");
+            let combinedHTML = '';
+            for(let s of filteredSantris) {
+                const htmlContent = await generateRaportHTML(s.id);
+                combinedHTML += `<div style="page-break-after: always; margin-bottom: 20mm;">${htmlContent}</div>`;
+            }
+
+            const pa = $('print-area');
+            pa.innerHTML = combinedHTML;
+            setTimeout(() => { window.print(); }, 500);
+        };
+
+        const generateRaportHTML = async (sId) => {
+            const santri = await API.getOne('santri', sId);
+            const mapels = await API.getList('mapel');
+            const allNilai = await API.query('nilai', 'id_santri', '==', sId);
+            const peng = await API.getOne('pengaturan', 'default') || {};
+
+            const firstNilaiWithStatus = allNilai.find(n => n.status_quran) || {};
+            const statusQuran = firstNilaiWithStatus.status_quran || 'Lulus';
+            const statusBArab = firstNilaiWithStatus.status_b_arab || 'Naik';
+            const statusDiniyah = firstNilaiWithStatus.status_diniyah || 'Naik';
+
+            let trs = '';
+            mapels.forEach((m, i) => {
+                const n = allNilai.find(x => x.id_mapel === m.id) || {};
+                const ut = n.ujian_tulis !== null && n.ujian_tulis !== undefined && n.ujian_tulis !== '' ? parseFloat(n.ujian_tulis) : null;
+                const uh = n.ujian_hafalan !== null && n.ujian_hafalan !== undefined && n.ujian_hafalan !== '' ? parseFloat(n.ujian_hafalan) : null;
+                
+                let avgUjian = '';
+                if(ut !== null && uh !== null) {
+                    avgUjian = ((ut + uh) / 2).toFixed(1);
+                } else if(ut !== null) {
+                    avgUjian = ut;
+                } else if(uh !== null) {
+                    avgUjian = uh;
+                } else if(n.ujian !== null && n.ujian !== undefined && n.ujian !== '') {
+                    avgUjian = n.ujian;
+                }
+
+                trs += `
+                    <tr>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${i+1}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: left;">${m.nama_mapel}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${m.kkm}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${n.harian_1 !== null && n.harian_1 !== undefined ? n.harian_1 : ''}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${n.harian_2 !== null && n.harian_2 !== undefined ? n.harian_2 : ''}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${n.harian_3 !== null && n.harian_3 !== undefined ? n.harian_3 : ''}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; font-weight: bold;">${avgUjian}</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px; text-align: left;">${n.catatan_guru || ''}</td>
+                    </tr>
+                `;
+            });
+
+            const formatStatus = (val, opt1, opt2) => {
+                if(val === opt1) return `${opt1} / <del>${opt2}</del>`;
+                if(val === opt2) return `<del>${opt1}</del> / ${opt2}`;
+                return `${opt1} / ${opt2}`;
+            };
+
+            return `
+                <div class="print-container">
+                    <div class="text-center w-full mb-4">
+                        ${peng.kop_image ? `<img src="${peng.kop_image}" style="max-width: 100%; height: auto; max-height: 120px; object-fit: contain; margin: 0 auto;" />` : `<h1 style="font-size:16pt; font-weight:bold;">KOP PONDOK BELUM DIATUR</h1>`}
+                    </div>
+                    
+                    <table style="width: 100%; font-size:11pt; margin-bottom: 10px; font-family:'Times New Roman', serif;">
+                        <tr><td style="width:130px;">Nama Santri</td><td>: <b>${santri.nama_santri}</b></td></tr>
+                        <tr><td>Kelas Diniyah</td><td>: ${santri.kelas_diniyah || '-'}</td></tr>
+                        <tr><td>Kelas Qur'an</td><td>: ${santri.kelas_quran || '-'}</td></tr>
+                        <tr><td>Kelas B. Arab</td><td>: ${santri.kelas_b_arab || '-'}</td></tr>
+                    </table>
+
+                    <table style="border-collapse: collapse; width: 100%; font-size: 11pt; margin-top: 10px; font-family:'Times New Roman', serif;">
+                        <thead>
+                            <tr style="background-color: #f1f5f9;">
+                                <th style="border: 1px solid #000; padding: 6px; width: 30px;" rowspan="2">NO</th>
+                                <th style="border: 1px solid #000; padding: 6px;" rowspan="2">Mata Pelajaran</th>
+                                <th style="border: 1px solid #000; padding: 6px; width: 40px;" rowspan="2">KKM</th>
+                                <th style="border: 1px solid #000; padding: 4px;" colspan="3">Nilai Harian (NH)</th>
+                                <th style="border: 1px solid #000; padding: 6px; width: 50px;" rowspan="2">Nilai Ujian<br><span style="font-size:8pt; font-weight:normal;">(Rata²)</span></th>
+                                <th style="border: 1px solid #000; padding: 6px;" rowspan="2">Catatan Guru</th>
+                            </tr>
+                            <tr style="background-color: #f1f5f9;">
+                                <th style="border: 1px solid #000; padding: 4px; width: 35px; font-size: 10pt;">1</th>
+                                <th style="border: 1px solid #000; padding: 4px; width: 35px; font-size: 10pt;">2</th>
+                                <th style="border: 1px solid #000; padding: 4px; width: 35px; font-size: 10pt;">3</th>
+                            </tr>
+                        </thead>
+                        <tbody>${trs}</tbody>
+                    </table>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 11pt; margin-top: 15px;">
+                        <div style="border: 1px solid #000; padding: 8px; min-height: 80px;">
+                            <b>Catatan Pengasuh:</b><br><br>
+                            <i>${santri.catatan_pengasuh || ''}</i>
+                        </div>
+                        <div style="border: 1px solid #000; padding: 8px;">
+                            <b>Rekap Absensi:</b>
+                            <table style="width:100%; font-size:11pt; margin-top:5px;">
+                                <tr><td>Jamaah</td><td>: ${santri.absen_jamaah || 0}</td></tr>
+                                <tr><td>Kelas Qur'an</td><td>: ${santri.absen_quran || 0}</td></tr>
+                                <tr><td>Kelas B. Arab</td><td>: ${santri.absen_b_arab || 0}</td></tr>
+                                <tr><td>Kelas Diniyah</td><td>: ${santri.absen_diniyah || 0}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 15px; font-size: 11pt; line-height: 1.6;">
+                        Santri dengan Nama <b>${santri.nama_santri}</b> dinyatakan :<br>
+                        ${formatStatus(statusQuran, 'Lulus', 'Tidak Lulus')} Ujian Qur'an<br>
+                        ${formatStatus(statusBArab, 'Naik', 'Tidak Naik')} Ujian B. Arab<br>
+                        ${formatStatus(statusDiniyah, 'Naik', 'Tidak Naik')} Kelas Diniyah
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; margin-top: 30px; text-align: center; font-size: 11pt;">
+                        <div>
+                            <br>TTD Ortu,<br><br><br><br>
+                            ( .................................... )
+                        </div>
+                        <div>
+                            ${peng.tanggal_cetak || '..................., ....................'}
+                            <br>TTD Pengasuh,<br>
+                            ${peng.ttd_pengasuh ? `<img src="${peng.ttd_pengasuh}" style="max-height: 70px; margin: 5px auto;" />` : `<br><br><br>`}
+                            <b>${peng.nama_pengasuh || '..........................'}</b>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        window.openModal = (title, bodyHtml, footerHtml) => {
+            $('modal-title').innerText = title;
+            $('modal-body').innerHTML = bodyHtml;
+            $('modal-footer').innerHTML = footerHtml;
+            $('modal-container').classList.remove('hidden');
+            setTimeout(() => $('modal-content').classList.remove('scale-95'), 10);
+        };
+
+        window.closeModal = () => {
+            $('modal-content').classList.add('scale-95');
+            setTimeout(() => $('modal-container').classList.add('hidden'), 200);
+        };
+
+        window.deleteData = async (collectionName, id) => {
+            if(confirm("Yakin ingin menghapus data ini?")) {
+                await API.delete(collectionName, id);
+                showToast("Data dihapus!");
+                renderContent();
+            }
+        };
+
+        if ('serviceWorker' in navigator && !IS_PREVIEW) {
+            const swCode = `
+                self.addEventListener('install', (e) => e.waitUntil(self.skipWaiting()));
+                self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+                self.addEventListener('fetch', (e) => {
+                    e.respondWith(fetch(e.request).catch(() => new Response('Offline mode not fully supported.')));
+                });
+            `;
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(console.error);
+        }
+    </script>
+</body>
+</html>
